@@ -17,9 +17,10 @@
 /* ESP32 AtomS3 Lite (ESP32S3 Dev Module)    / Core 3.1.1 / Flash 8M with SPIFFS (3MB APP / 1.5MB SPIFFS)                  */
 /* ESP32 Ethernet WT32-ETH01                 / Core 3.1.1 / Flash 4MB (1.9MB APP / 180KB SPIFFS)                           */
 
+#define ARDUINO_WROOM
+#define ESP32
 
 #if defined(ESP8266) || defined(ESP32)  // ESP32 or ESP8266 Compatiability
-
 #include <FS.h>  // Define File System First
 #include <LittleFS.h>
 
@@ -96,6 +97,11 @@ int Reset_Button = 41;
 #define FTCProxy_TxPin 39
 #define MEL_RxPin 8
 #define MEL_TxPin 7
+#endif
+
+#ifdef ARDUINO_WROOM
+#define FTCCable_RxPin 27
+#define FTCCable_TxPin 26
 #endif
 
 #ifdef ARDUINO_WT32_ETH01
@@ -282,16 +288,19 @@ void setup() {
 
   HEATPUMP_STREAM.begin(SERIAL_BAUD, SERIAL_CONFIG, FTCCable_RxPin, FTCCable_TxPin);  // Rx, Tx
   HeatPump.SetStream(&HEATPUMP_STREAM);
+#ifndef ARDUINO_WROOM
   MEL_STREAM.begin(SERIAL_BAUD, SERIAL_CONFIG, MEL_RxPin, MEL_TxPin);  // Rx, Tx
   MELCloud.SetStream(&MEL_STREAM);
-
+#endif
 #ifdef ARDUINO_WT32_ETH01
   Network.onEvent(onEvent);
   ETH.begin();
 #endif
 
 #ifndef ARDUINO_WT32_ETH01
+#ifndef ARDUINO_WROOM
   pinMode(Reset_Button, INPUT);  // Pushbutton on other modules
+#endif
 #endif
 
 
@@ -358,12 +367,16 @@ void loop() {
   HeatPumpQuery6.Process();
   HeatPumpQuery7.Process();
 
+#ifndef ARDUINO_WROOM
   MELCloudQueryReplyEngine();
+#endif
   MQTTClient1.loop();
   MQTTClient2.loop();
   TelnetServer.loop();
   HeatPump.Process();
+#ifndef ARDUINO_WROOM
   MELCloud.Process();
+#endif
   wifiManager.process();
 
 
@@ -476,7 +489,7 @@ void loop() {
   }
 
   // -- Push Button Action Handler -- //
-#ifndef ARDUINO_WT32_ETH01
+#if not defined(ARDUINO_WT32_ETH01) && not defined(ARDUINO_WROOM)  // No button on WT32 or WROOM
   if (digitalRead(Reset_Button) == LOW) {                                                                                                                                                                    // Inverted (Button Pushed is LOW)
     HeatPump.SetSvrControlMode(0, HeatPump.Status.ProhibitDHW, HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);  // Exit SCM leaving state
     ModifyCompCurveState(1, false);                                                                                                                                                                          // Escape Local WC Mode
@@ -569,6 +582,12 @@ void HeatPumpKeepAlive(void) {
       HeatPump.SetStream(&HEATPUMP_STREAM);
       CableConnected = true;
     }
+#endif
+#ifdef ARDUINO_WROOM
+      DEBUG_PRINTLN(F("Trying to connect via Cable"));
+      HEATPUMP_STREAM.begin(SERIAL_BAUD, SERIAL_CONFIG, FTCCable_RxPin, FTCCable_TxPin);  // Rx, Tx
+      HeatPump.SetStream(&HEATPUMP_STREAM);
+      CableConnected = true;
 #endif
   }
   ftcpreviousMillis = millis();
