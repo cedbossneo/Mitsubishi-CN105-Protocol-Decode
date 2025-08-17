@@ -462,6 +462,9 @@ void loop() {
       myLED.brightness(LED_BRIGHT, 1);
       ESP.restart();
 #endif
+#ifdef ARDUINO_WROOM
+      ESP.restart();  // No button on WROOM, just restart
+#endif
     }  // Wait for 5 mins to try reconnects then force restart
     WiFiConnectedLastLoop = false;
   } else if (WiFi.status() != WL_CONNECTED && wifiManager.getConfigPortalActive()) {
