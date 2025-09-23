@@ -331,7 +331,7 @@ void ECODANDECODER::Process0x02(uint8_t *Buffer, EcodanStatus *Status) {
   uint8_t Defrost, LastDefrost, ThermostatZ1, ThermostatZ2;
 
   LastDefrost = Defrost;
-  
+
   for (int i = 1; i < 16; i++) {
     Array0x02[i] = Buffer[i];
   }
@@ -430,6 +430,7 @@ void ECODANDECODER::Process0x06(uint8_t *Buffer, EcodanStatus *Status) {
 
 void ECODANDECODER::Process0x07(uint8_t *Buffer, EcodanStatus *Status) {
   uint8_t InputPower, OutputPower;
+  uint16_t EnergyConsumedIncreasing;
 
   for (int i = 1; i < 16; i++) {
     Array0x07[i] = Buffer[i];
@@ -437,9 +438,11 @@ void ECODANDECODER::Process0x07(uint8_t *Buffer, EcodanStatus *Status) {
 
   InputPower = Buffer[4];
   OutputPower = Buffer[6];
+  EnergyConsumedIncreasing = ExtractUInt16(Buffer,11) / 10.0f;
 
   Status->InputPower = InputPower;
   Status->OutputPower = OutputPower;
+  Status->EnergyConsumedIncreasing = EnergyConsumedIncreasing;
 }
 
 
@@ -489,7 +492,11 @@ void ECODANDECODER::Process0x0B(uint8_t *Buffer, EcodanStatus *Status) {
     Array0x0b[i] = Buffer[i];
   }
 
-  fZone1 = ((float)ExtractUInt16(Buffer, 1) / 100);
+  if (Buffer[1] != 0xf0) {  // Extract if zone connected (not default value)
+    fZone1 = ((float)ExtractUInt16(Buffer, 1) / 100);
+  } else {
+    fZone1 = 0;
+  }
   if (Buffer[3] != 0xf0) {  // Extract if zone connected (not default value)
     fZone2 = ((float)ExtractUInt16(Buffer, 3) / 100);
   } else {
@@ -820,7 +827,7 @@ void ECODANDECODER::Process0x26(uint8_t *Buffer, EcodanStatus *Status) {
   //Zone1FlowSetpoint = ((float)ExtractUInt16(Buffer, 10) / 100);   // Duplicate of 0x09
   //Zone2FlowSetpoint = ((float)ExtractUInt16(Buffer, 12) / 100);   // Duplicate of 0x09
   //ScheduleStatus = Buffer[14];
-  
+
   Status->SystemPowerMode = SystemPowerMode;
   Status->SystemOperationMode = SystemOperationMode;
   Status->HotWaterControlMode = HotWaterControlMode;
@@ -843,9 +850,11 @@ void ECODANDECODER::Process0x28(uint8_t *Buffer, EcodanStatus *Status) {
   uint8_t SvrControlMode;
 
   for (int i = 1; i < 16; i++) {
-    //if (i == 10) { Array0x28[i] = 0; }
-    //else { Array0x28[i] = Buffer[i]; }
-    Array0x28[i] = Buffer[i];
+    if (i == 10) {
+      Array0x28[i] = 0;
+    } else {
+      Array0x28[i] = Buffer[i];
+    }
   }
 
   HotWaterBoostActive = Buffer[3];  //Forced DHW Mode (Booster)
@@ -981,6 +990,9 @@ void ECODANDECODER::Process0xA3(uint8_t *Buffer, EcodanStatus *Status) {
       Status->LEVB = Buffer[4];
     }
     Status->ServiceCodeReply = ExtractInt16_v2_Signed(Buffer, 4);
+  } else if (Buffer[3] != 0) {  // FTC side done but response is Done (7) or Unknown (6)
+    Write_To_Ecodan_OK = true;  // For de-queue
+    Status->Write_To_Ecodan_OK = Write_To_Ecodan_OK;
   }
 }
 
@@ -1127,15 +1139,14 @@ uint8_t ECODANDECODER::CheckSum(uint8_t *Buffer, uint8_t len) {
 
 
 
-void ECODANDECODER::EncodeDHWSetpoint(float HotWaterSetpoint) {
+void ECODANDECODER::EncodeDHWSetpoint(float Setpoint) {
   uint8_t UpperByte, LowerByte;
   uint16_t ScaledTarget;
 
   TxMessage.Payload[0] = TX_MESSAGE_BASIC;
   TxMessage.Payload[1] = SET_HOT_WATER_SETPOINT;
 
-  ScaledTarget = HotWaterSetpoint;
-  ScaledTarget *= 100;
+  ScaledTarget = Setpoint * 100;
   UpperByte = (uint8_t)(ScaledTarget >> 8);
   LowerByte = (uint8_t)(ScaledTarget & 0x00ff);
 

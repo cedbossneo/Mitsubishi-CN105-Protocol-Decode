@@ -55,7 +55,7 @@
 #include "Ecodan.h"
 #include "Melcloud.h"
 
-String FirmwareVersion = "6.3.2";
+String FirmwareVersion = "6.3.5";
 
 
 #ifdef ESP8266  // Define the Witty ESP8266 Serial Pins
@@ -132,8 +132,9 @@ const int port_max_length = 10;
 const int user_max_length = 30;
 const int password_max_length = 50;
 const int basetopic_max_length = 30;
-
-float Z1_CurveFSP, Z2_CurveFSP;
+bool BlockWriteFromMELCloud = false;
+float Z1_CurveFSP = 30;
+float Z2_CurveFSP = 30;
 
 // The extra parameters to be configured (can be either global or just in the setup)
 // After connecting, parameter.getValue() will get you the configured value
@@ -537,7 +538,7 @@ void loop() {
     }
 
 #ifdef ESP8266
-    ESP.reset();  // Define the Witty ESP8266 Ports
+    ESP.reset();  // ESP8266 Restart Method
 #endif
 #ifdef ESP32        // ESP32 Action
     ESP.restart();  // No button on ETH
@@ -642,10 +643,10 @@ void MELCloudQueryReplyEngine(void) {
     } else if (MELCloud.Status.ActiveMessage == 0x28 && !MELCloud.Status.MEL_Heartbeat) {  // Toggle the Heartbeat Low for other requests
       Array0x28[11] = 0;
     }
-    MELCloud.ReplyStatus(MELCloud.Status.ActiveMessage);
+    MELCloud.ReplyStatus(MELCloud.Status.ActiveMessage);  // Reply with the OK Message to MELCloud
     MELCloud.Status.ReplyNow = false;
-    if (MELCloud.Status.ActiveMessage == 0x32 || MELCloud.Status.ActiveMessage == 0x33 || MELCloud.Status.ActiveMessage == 0x34 || MELCloud.Status.ActiveMessage == 0x35) {  // The writes
-      HeatPump.WriteMELCloudCMD(MELCloud.Status.ActiveMessage);
+    if (MELCloud.Status.ActiveMessage == 0x32 || MELCloud.Status.ActiveMessage == 0x33 || MELCloud.Status.ActiveMessage == 0x34 || MELCloud.Status.ActiveMessage == 0x35) {  // The write commands
+      if (!BlockWriteFromMELCloud) { HeatPump.WriteMELCloudCMD(MELCloud.Status.ActiveMessage); }                                                                             // Passes the MELCloud Interface Write Message to the Ecodan Interface Command Queue
     }
   } else if ((MELCloud.Status.ConnectRequest) && (HeatPump.Status.FTCVersion != 0)) {
     MELCloud.Connect();  // Reply to the connect request
@@ -689,6 +690,12 @@ void MQTTonData(char* topic, byte* payload, unsigned int length) {
     } else if (Payload.toInt() == 998) {
       DEBUG_PRINTLN(F("Disconnecting from FTC"));
       HeatPump.Disconnect();
+    } else if (Payload.toInt() == 997) {
+      DEBUG_PRINTLN(F("Ignoring Write Requests from MELCloud"));
+      BlockWriteFromMELCloud = true;
+    } else if (Payload.toInt() == 996) {
+      DEBUG_PRINTLN(F("Allowing Write Requests from MELCloud"));
+      BlockWriteFromMELCloud = false;
     } else {
       HeatPump.WriteServiceCodeCMD(Payload.toInt());
       SvcRequested = Payload.toInt();
@@ -765,16 +772,20 @@ void MQTTonData(char* topic, byte* payload, unsigned int length) {
   }
   if ((Topic == MQTTCommandHotwaterNormalBoost) || (Topic == MQTTCommand2HotwaterNormalBoost)) {
     MQTTWriteReceived("MQTT Set Normal DHW Boost", 16);
-    if (Payload.toInt() == 1) {
+    if (Payload.toInt() == 1) {                                // Turn ON
       PreHWBoostSvrCtrlMode = HeatPump.Status.SvrControlMode;  // Record the Server Control Mode when Entering Boost Only
       if (HeatPump.Status.ProhibitDHW == 0) {                  // To boost, must be at transition of On > Off, so if current Prohibit Status if off first Enter SCM with Prohibit On to shortly create a transition
         HeatPump.SetSvrControlMode(Payload.toInt(), Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
       }
+      HeatPump.SetSvrControlMode(Payload.toInt(), 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
+      HeatPump.Status.SvrControlMode = 1;  // Server Control Mode Enables for this mode
+    } else if (Payload.toInt() == 0) {     // Turn OFF
+      HeatPump.SetSvrControlMode(PreHWBoostSvrCtrlMode, 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
+      HeatPump.Status.SvrControlMode = PreHWBoostSvrCtrlMode;  // Server Control Mode is now Set to Status before Switch Toggle
     }
-    HeatPump.SetSvrControlMode(Payload.toInt(), 1 - Payload.toInt(), HeatPump.Status.ProhibitHeatingZ1, HeatPump.Status.ProhibitCoolingZ1, HeatPump.Status.ProhibitHeatingZ2, HeatPump.Status.ProhibitCoolingZ2);
-    if (PreHWBoostSvrCtrlMode == 0) { HeatPump.Status.SvrControlMode = Payload.toInt(); }  // Server Control Mode is now Set to Input
-    HeatPump.Status.ProhibitDHW = 1 - Payload.toInt();                                     // Hot Water Boost is Inverse
-    NormalHWBoostOperating = Payload.toInt();                                              // Hot Water Boost Operating is Active
+
+    HeatPump.Status.ProhibitDHW = 1 - Payload.toInt();  // Hot Water Prohibit is Inverse of request
+    NormalHWBoostOperating = Payload.toInt();           // Hot Water Boost Operating is Active/Inactive
   }
   if ((Topic == MQTTCommandSystemHolidayMode) || (Topic == MQTTCommand2SystemHolidayMode)) {
     MQTTWriteReceived("MQTT Set Holiday Mode", 16);
@@ -897,8 +908,7 @@ void MQTTonData(char* topic, byte* payload, unsigned int length) {
 
 
       // Activation Of Mode per Zone (Bool)
-      const char* error = doc["zone1"]["active"];
-      if (error) {
+      if (doc["zone1"]["active"].is<bool>()) {
         bool wc_z1_active = doc["zone1"]["active"];
         if (!unitSettings.z1_active && wc_z1_active) {                                                    // On transition from Inactive > Active
           if (HeatPump.Status.HeatingControlModeZ1 != 1) {                                                // Check if not already in Fixed Flow Mode
@@ -908,8 +918,7 @@ void MQTTonData(char* topic, byte* payload, unsigned int length) {
         }
         ModifyCompCurveState(1, wc_z1_active);  // State Save
       }
-      error = doc["zone2"]["active"];
-      if (error) {
+      if (doc["zone2"]["active"].is<bool>()) {
         bool wc_z2_active = doc["zone2"]["active"];
         if (!unitSettings.z2_active && wc_z2_active) {                                                    // On transition from Inactive > Active
           if (HeatPump.Status.HeatingControlModeZ2 != 1) {                                                // Check if not already in Fixed Flow Mode
@@ -922,8 +931,7 @@ void MQTTonData(char* topic, byte* payload, unsigned int length) {
 
 
       // Local or Remote Outdoor Temperature Measurement (Bool)
-      error = doc["use_local_outdoor"];
-      if (error) {
+      if (doc["use_local_outdoor"].is<bool>()) {
         unitSettings.use_local_outdoor = doc["use_local_outdoor"];
       }
 
@@ -1080,33 +1088,41 @@ void SystemReport(void) {
     if (OutputPower == 0) { HeatOutputPower = HeatPump.Status.OutputPower; }
   }
 
-  if (HeatPump.Status.SystemOperationMode > 0) {                      // Pump Operating
-    if (OutputPower < 0) {                                            // Cooling or Defrosting Mode
-      if (HeatPump.Status.Defrost != 0) {                             // If Defrosting Mode
-        EstHeatingInputPower = EstCoolingInputPower = EstInputPower;  // Input Power attributed to Heating & Cooling
-        HeatingOutputPower = HeatOutputPower = OutputPower;           // Heating is Negative (Extracting heat to defrost)
-        CoolOutputPower = fabsf(OutputPower);                         // Make Positive Cooling
-      } else {                                                        // If Cooling Mode
-        EstCoolingInputPower = EstInputPower;                         //
-        CoolOutputPower = fabsf(OutputPower);                         // Make Positive
-      }                                                               //
-    } else if (OutputPower > 0) {                                     // Heating by HP
-      if (DHW_Mode) {                                                 // DHW Operation Mode via HP
-        EstDHWInputPower = EstInputPower;                             //
-        DHWOutputPower = HeatOutputPower = OutputPower;               //
-      } else {                                                        // Heating Operation Mode via HP
-        EstHeatingInputPower = EstInputPower;                         //
-        HeatingOutputPower = HeatOutputPower = OutputPower;           //
-      }                                                               // Heating Modes
-    } else if (OutputPower == 0 && Non_HP_Mode) {                     // Boosters or Immersion
-      if (DHW_Mode) {                                                 // DHW Operation Mode
-        EstDHWInputPower = EstInputPower;                             //
-        DHWOutputPower = OutputPower = HeatOutputPower;               //
-      } else {                                                        // Heating Modes
-        EstHeatingInputPower = EstInputPower;                         //
-        HeatingOutputPower = OutputPower = HeatOutputPower;           //
-      }                                                               //
-    }                                                                 //
+  if (HeatPump.Status.SystemOperationMode > 0) {                // Pump Operating
+    if (OutputPower < 0) {                                      // Cooling or Defrosting Mode
+      if (HeatPump.Status.Defrost != 0) {                       // If Defrosting Mode
+        EstHeatingInputPower = EstInputPower;                   // Input Power attributed to Heating & Cooling
+        HeatingOutputPower = HeatOutputPower = OutputPower;     // Heating is Negative (Extracting heat to defrost)
+      }                                                         //
+      else if (DHW_Mode) {                                      // Not defrosting, hot water mode
+        EstDHWInputPower = EstInputPower;                       //
+        DHWOutputPower = HeatOutputPower = OutputPower;         // DHW Output Power is Negative
+      } else {                                                  // Heating/Cooling Mode
+        if (HeatPump.Status.SystemOperationMode == 2) {         // Heating Operating Mode
+          EstHeatingInputPower = EstInputPower;                 // Input Power attribution to Heating
+        } else if (HeatPump.Status.SystemOperationMode == 3) {  // Cooling Operation Mode
+          EstCoolingInputPower = EstInputPower;                 // Input Power attribution to Cooling
+        }                                                       //
+        HeatingOutputPower = HeatOutputPower = OutputPower;     // Heating is Negative Output Power
+        CoolOutputPower = fabsf(OutputPower);                   // Make Cooling Positive Output Power
+      }                                                         //
+    } else if (OutputPower > 0) {                               // Heating by HP
+      if (DHW_Mode) {                                           // DHW Operation Mode via HP
+        EstDHWInputPower = EstInputPower;                       //
+        DHWOutputPower = HeatOutputPower = OutputPower;         //
+      } else {                                                  // Heating Operation Mode via HP
+        EstHeatingInputPower = EstInputPower;                   //
+        HeatingOutputPower = HeatOutputPower = OutputPower;     //
+      }                                                         // Heating Modes
+    } else if (OutputPower == 0 && Non_HP_Mode) {               // Boosters or Immersion
+      if (DHW_Mode) {                                           // DHW Operation Mode
+        EstDHWInputPower = EstInputPower;                       //
+        DHWOutputPower = OutputPower = HeatOutputPower;         //
+      } else {                                                  // Heating Modes
+        EstHeatingInputPower = EstInputPower;                   //
+        HeatingOutputPower = OutputPower = HeatOutputPower;     //
+      }                                                         //
+    }                                                           //
   }
 
 
@@ -1236,6 +1252,7 @@ void EnergyReport(void) {
   doc[F("COOL_CoP")] = round2(cool_cop);
   doc[F("DHW_CoP")] = round2(dhw_cop);
   doc[F("TOTAL_CoP")] = round2(total_cop);
+  doc[F("ConsumedTotalInc")] = HeatPump.Status.EnergyConsumedIncreasing;
   doc[F("HB_ID")] = Heart_Value;
 
   serializeJson(doc, Buffer);
@@ -1378,29 +1395,26 @@ void ConfigurationReport(void) {
 
 void CompCurveReport(void) {
   JsonDocument storeddoc;
-  deserializeJson(storeddoc, unitSettings.CompCurve);
-  JsonObject obj = storeddoc.as<JsonObject>();
-
-  JsonDocument doc;
+  deserializeJson(storeddoc, unitSettings.CompCurve);  // Extract Saved to Flash Settings
   char Buffer[1024];
 
-  doc = obj;
-  doc[F("zone1")]["active"] = unitSettings.z1_active;
-  doc[F("zone1")]["manual_offset"] = unitSettings.z1_manual_offset;
-  doc[F("zone1")]["temp_offset"] = unitSettings.z1_temp_offset;
-  doc[F("zone1")]["wind_offset"] = unitSettings.z1_wind_offset;
-  doc[F("zone1")]["calculated_FSP"] = Z1_CurveFSP;
-  doc[F("zone2")]["active"] = unitSettings.z2_active;
-  doc[F("zone2")]["manual_offset"] = unitSettings.z2_manual_offset;
-  doc[F("zone2")]["temp_offset"] = unitSettings.z2_temp_offset;
-  doc[F("zone2")]["wind_offset"] = unitSettings.z2_wind_offset;
-  doc[F("zone2")]["calculated_FSP"] = Z2_CurveFSP;
-  doc[F("use_local_outdoor")] = unitSettings.use_local_outdoor;
-  doc[F("cloud_outdoor")] = unitSettings.cloud_outdoor;
+  // Add to saved settings with live
+  storeddoc[F("zone1")]["active"] = unitSettings.z1_active;
+  storeddoc[F("zone1")]["manual_offset"] = unitSettings.z1_manual_offset;
+  storeddoc[F("zone1")]["temp_offset"] = unitSettings.z1_temp_offset;
+  storeddoc[F("zone1")]["wind_offset"] = unitSettings.z1_wind_offset;
+  storeddoc[F("zone1")]["calculated_FSP"] = Z1_CurveFSP;
+  storeddoc[F("zone2")]["active"] = unitSettings.z2_active;
+  storeddoc[F("zone2")]["manual_offset"] = unitSettings.z2_manual_offset;
+  storeddoc[F("zone2")]["temp_offset"] = unitSettings.z2_temp_offset;
+  storeddoc[F("zone2")]["wind_offset"] = unitSettings.z2_wind_offset;
+  storeddoc[F("zone2")]["calculated_FSP"] = Z2_CurveFSP;
+  storeddoc[F("use_local_outdoor")] = unitSettings.use_local_outdoor;
+  storeddoc[F("cloud_outdoor")] = unitSettings.cloud_outdoor;
 
-  doc[F("HB_ID")] = Heart_Value;
+  storeddoc[F("HB_ID")] = Heart_Value;
 
-  serializeJson(doc, Buffer);
+  serializeJson(storeddoc, Buffer);
   MQTTClient1.publish(MQTT_STATUS_CURVE.c_str(), Buffer, false);
   MQTTClient2.publish(MQTT_2_STATUS_CURVE.c_str(), Buffer, false);
 }
@@ -1506,7 +1520,7 @@ void onTelnetConnectionAttempt(String ip) {
 }
 
 float roundToHalfDecimal(float value) {
-  return round(value * 2.0) / 2.0;
+  return ((round(value * 2.0)) / 2.0);
 }
 
 double round2(double value) {
@@ -1533,7 +1547,8 @@ void CalculateCompCurve() {
   } else {
     unitSettings.z1_active = doc["zone1"]["active"];  // Transfer JSON to Struct Bool
     unitSettings.z2_active = doc["zone2"]["active"];
-    //if (!unitSettings.z1_active && !unitSettings.z2_active) { return; } else                        // Only calculates (saves time, if mode enabled)
+    //if (!unitSettings.z1_active && !unitSettings.z2_active) { return; }  // Only calculates (saves time, if mode enabled)
+    //else
     {
       float OutsideAirTemperature = 0;
 
@@ -1552,26 +1567,25 @@ void CalculateCompCurve() {
 
       int z1_points = doc["base"]["zone1"]["curve"].size() - 1;                            // How many points are there specified on the curve
       for (int i = 0; i <= z1_points; i++) {                                               // Iterate through the points
-        float tmp_o_1 = doc["base"]["zone1"]["curve"][i]["outside"];                       // Outside Temperature
-        if ((i == 0) && (OutsideAirTemperature < tmp_o_1)) {                               // On the first point, this determines the Maximum Flow Temp
-          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"];                          //
-        } else if ((i == z1_points) && (OutsideAirTemperature > tmp_o_1)) {                // The last point determines the Minimum Flow Temp
-          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"];                          //
-        } else {                                                                           // Intermediate Flow Points
-          float tmp_o_2 = doc["base"]["zone1"]["curve"][i + 1]["outside"];                 // Outside Temperature
-          if ((OutsideAirTemperature >= tmp_o_1) && (OutsideAirTemperature <= tmp_o_2)) {  // Validate the outside temp setpoint is in the correct range
-            float y2 = doc["base"]["zone1"]["curve"][i + 1]["flow"];                       // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
-            float y1 = doc["base"]["zone1"]["curve"][i]["flow"];                           //
+        float tmp_o_1 = doc["base"]["zone1"]["curve"][i]["outside"];                       // Outside Temperature for this point
+        if ((i == 0) && (OutsideAirTemperature <= tmp_o_1)) {                              // On the first point, this determines the Maximum Flow Temp
+          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"];                          // Set to Max Flow Temp
+        } else if ((i == z1_points) && (OutsideAirTemperature >= tmp_o_1)) {               // The last point determines the Minimum Flow Temp
+          Z1_CurveFSP = doc["base"]["zone1"]["curve"][i]["flow"];                          // Set to Min Flow Temp
+        } else {                                                                           // Intermediate Flow Points are calculated
+          float tmp_o_2 = doc["base"]["zone1"]["curve"][i + 1]["outside"];                 // Outside Temperature of the next point (warmer)
+          if ((OutsideAirTemperature >= tmp_o_1) && (OutsideAirTemperature <= tmp_o_2)) {  // Validate the current outside temp value is in the correct range between points
+            float y1 = doc["base"]["zone1"]["curve"][i + 1]["flow"];                       // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
+            float y2 = doc["base"]["zone1"]["curve"][i]["flow"];                           //
             float z1_delta_y = y2 - y1;                                                    // y2-y1
-            float z1_delta_x = tmp_o_2 - tmp_o_1;                                          // x2-x1
+            float z1_delta_x = tmp_o_1 - tmp_o_2;                                          // x2-x1
             float z1_m = 0;                                                                //
-            if (z1_delta_x > 0) { z1_m = z1_delta_y / z1_delta_x; }                        // Prevent Div by 0          m = y2-y1 / x2-x1
-            float z1_c = y1 - (z1_m * tmp_o_1);                                            // c = y-mx
-            Z1_CurveFSP = z1_m * OutsideAirTemperature + z1_c;                             // y = mx+c
+            if (z1_delta_x != 0) { z1_m = z1_delta_y / z1_delta_x; }                       // Prevent Div by 0          m = y2-y1 / x2-x1
+            float z1_c = y2 - (z1_m * tmp_o_1);                                            // c = y-mx at point
+            Z1_CurveFSP = (z1_m * OutsideAirTemperature) + z1_c;                           // y = mx+c
           }
         }
       }
-
 
       int z2_points = doc["base"]["zone2"]["curve"].size() - 1;  // How many points are there specified on the curve
       for (int i = 0; i <= z2_points; i++) {
@@ -1582,31 +1596,30 @@ void CalculateCompCurve() {
           Z2_CurveFSP = doc["base"]["zone2"]["curve"][i]["flow"];
         } else {
           float tmp_o_2 = doc["base"]["zone2"]["curve"][i + 1]["outside"];
-          if ((OutsideAirTemperature > tmp_o_1) && (OutsideAirTemperature < tmp_o_2)) {
-            float y2 = doc["base"]["zone2"]["curve"][i + 1]["flow"];  // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
-            float y1 = doc["base"]["zone2"]["curve"][i]["flow"];
+          if ((OutsideAirTemperature >= tmp_o_1) && (OutsideAirTemperature <= tmp_o_2)) {
+            float y1 = doc["base"]["zone2"]["curve"][i + 1]["flow"];  // Calculate the slope using the formula: m = (y2 - y1) / (x2 - x1)
+            float y2 = doc["base"]["zone2"]["curve"][i]["flow"];
             float z2_delta_y = y2 - y1;
-            float z2_delta_x = tmp_o_2 - tmp_o_1;
-            float z2_m = 0;                                                //
-            if (z2_delta_x > 0) { float z2_m = z2_delta_y / z2_delta_x; }  // Prevent Div by 0          m = y2-y1 / x2-x1
-            float z2_c = y2 - (z2_m * tmp_o_1);                            // c = y-mx
-            Z2_CurveFSP = z2_m * OutsideAirTemperature + z2_c;             // y = mx+c
+            float z2_delta_x = tmp_o_1 - tmp_o_2;
+            float z2_m = 0;                                           //
+            if (z2_delta_x != 0) { z2_m = z2_delta_y / z2_delta_x; }  // Prevent Div by 0          m = y2-y1 / x2-x1
+            float z2_c = y2 - (z2_m * tmp_o_1);                       // c = y-mx
+            Z2_CurveFSP = (z2_m * OutsideAirTemperature) + z2_c;      // y = mx+c
           }
         }
       }
     }
-
     // Apply Post Calculation Offsets to Calculated Curve Flow Setpoint
     Z1_CurveFSP = roundToHalfDecimal(Z1_CurveFSP + unitSettings.z1_wind_offset + unitSettings.z1_temp_offset + unitSettings.z1_manual_offset);
     Z2_CurveFSP = roundToHalfDecimal(Z2_CurveFSP + unitSettings.z2_wind_offset + unitSettings.z2_temp_offset + unitSettings.z2_manual_offset);
 
     // Write the Flow Setpoints to Heat Pump
     if (unitSettings.z1_active) {
-      HeatPump.SetFlowSetpoint(Z1_CurveFSP, HeatPump.Status.HeatingControlModeZ1, ZONE1);
+      HeatPump.SetFlowSetpoint(Z1_CurveFSP, HEATING_CONTROL_MODE_FLOW_TEMP, ZONE1);
       HeatPump.Status.Zone1FlowTemperatureSetpoint = Z1_CurveFSP;
     }
-    if (unitSettings.z2_active) {
-      HeatPump.SetFlowSetpoint(Z2_CurveFSP, HeatPump.Status.HeatingControlModeZ2, ZONE2);
+    if (unitSettings.z2_active && HeatPump.Status.Has2Zone && !HeatPump.Status.Simple2Zone) {  // User must have Complex 2 zone to set different flow temp in different zones
+      HeatPump.SetFlowSetpoint(Z2_CurveFSP, HEATING_CONTROL_MODE_FLOW_TEMP, ZONE2);
       HeatPump.Status.Zone2FlowTemperatureSetpoint = Z2_CurveFSP;
     }
     CompCurveReport();
@@ -1621,8 +1634,14 @@ void ModifyCompCurveState(int Zone, bool Active) {
     DEBUG_PRINT("Failed to read: ");
     DEBUG_PRINTLN(error.c_str());
   } else {
-    if (Zone == 1) { local_stored_doc["zone1"]["active"] = Active; }  // Load the new Base into the correct area of the locally stored file
-    if (Zone == 2) { local_stored_doc["zone2"]["active"] = Active; }  // Load the new Base into the correct area of the locally stored file
+    if (Zone == 1) {
+      local_stored_doc["zone1"]["active"] = Active;
+      DEBUG_PRINTLN("Activated Comp Curve Zone 1");
+    }  // Load the new Base into the correct area of the locally stored file
+    if (Zone == 2) {
+      local_stored_doc["zone2"]["active"] = Active;
+      DEBUG_PRINTLN("Activated Comp Curve Zone 2");
+    }  // Load the new Base into the correct area of the locally stored file
   }
   local_stored_doc.shrinkToFit();
   serializeJson(local_stored_doc, unitSettings.CompCurve);  // Repack the JSON
