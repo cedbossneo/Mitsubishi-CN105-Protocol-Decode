@@ -87,14 +87,16 @@ const char SystemPowerModeString[2][8] = { "Standby", "On" };
 #define SYSTEM_OPERATION_MODE_HEATING_ECO 7
 const char SystemOperationModeString[8][14] = { "Off", "Hot Water", "Heating", "Cooling", "Zero V", "Frost Protect", "Legionella", "Heating Eco" };
 
-const int HeatingRunningBinary[] = { 0, 0, 1, 0 };
-const int CoolingRunningBinary[] = { 0, 0, 0, 1 };
+const int HeatingRunningBinary[] = { 0, 0, 1, 0, 0, 0, 0, 0 };
+const int CoolingRunningBinary[] = { 0, 0, 0, 1, 0, 0, 0, 0 };
 
 #define HOT_WATER_CONTROL_MODE_NORMAL 0
 #define HOT_WATER_CONTROL_MODE_ECO 1
 const char HotWaterControlModeString[2][7] = { "Normal", "Eco" };
 
 const char HPControlModeString[2][5] = { "Heat", "Cool" };
+const char ShortCycleReason[3][33] = { "", "Flow Temp Exceeded Flow Setpoint", "Thermostat Demand" };
+
 
 #define HEATING_CONTROL_MODE_ZONE_TEMP 0x00
 #define HEATING_CONTROL_MODE_FLOW_TEMP 0x01
@@ -102,7 +104,8 @@ const char HPControlModeString[2][5] = { "Heat", "Cool" };
 #define HEATING_CONTROL_MODE_COOL_ZONE_TEMP 0x03
 #define HEATING_CONTROL_MODE_COOL_FLOW_TEMP 0x04
 #define HEATING_CONTROL_MODE_DRY_UP 0x05
-const char HeatingControlModeString[6][13] = { "Temp", "Flow", "Compensation", "Cool", "Cool Flow", "Dry Up" };
+#define HEATING_CONTROL_MODE_COOL_COMPENSATION 0x06
+const char HeatingControlModeString[7][18] = { "Temp", "Flow", "Compensation", "Cool", "Cool Flow", "Dry Up", "Cool Compensation" };
 const char ThermostatString[16][4] = { "MRC", "RC1", "RC2", "RC3", "RC4", "RC5", "RC6", "RC7", "RC8", "", "", "", "", "", "", "TH1" };
 
 #define HOLIDAY_MODE_OFF 0
@@ -183,7 +186,7 @@ typedef struct _EcodanStatus {
 
   // From Message 0x07
   uint8_t InputPower, OutputPower;
-  uint16_t EnergyConsumedIncreasing;
+  float EnergyConsumedIncreasing;
 
   // From Message 0x08
 
@@ -222,10 +225,10 @@ typedef struct _EcodanStatus {
 
   //From Message 0x11
   uint8_t DipSwitch1, DipSwitch2, DipSwitch3, DipSwitch4, DipSwitch5, DipSwitch6;
-  bool HasCooling, Has2Zone, Simple2Zone;
-
+  bool HasCooling, Has2Zone, Simple2Zone, HasAnsweredDips;
   //From Message 0x13
   uint32_t RunHours;
+  bool CompressorRunning;
 
   //From Message 0x14
   uint8_t PrimaryFlowRate;
@@ -310,7 +313,7 @@ private:
   MessageStruct RxMessage;
   MessageStruct TxMessage;
 
-
+  bool IS_BIT_SET(uint8_t value, uint8_t bit);
 
   uint8_t Preamble[PREAMBLESIZE];
 
