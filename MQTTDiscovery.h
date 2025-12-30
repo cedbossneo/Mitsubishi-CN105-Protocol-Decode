@@ -1,12 +1,9 @@
 //-- MQTT Home Assistant Auto Discovery --//
 
-const int discovery_topics PROGMEM = 118;
+const int discovery_topics PROGMEM = 123;
 
 // Build the sensor JSON structure
-const char MQTT_DISCOVERY_OBJ_ID[][3] PROGMEM = { "aa", "ab", "ac", "ad", "ae", "af", "ag", "ai", "aj", "ak", "al", "am", "an", "ao", "ap", "aq", "ar", "as", "au", "av", "aw", "ax", "ay", "az", "ba", "bb", "bc", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bk", "bl", "bm", "bn", "bo", "bp", "bq", "br", "bs", "bt", "bu", "bv", "bw", "bx", "by", "bz", "ca", "cb", "cc", "cd", "cu", "cv", "cw", "cx", "cz", "da", "db", "dc", "de", "df", "dg", "dh", "di", "dj", "dk", "dl", "dm", "dn", "do", "dp", "dq", "ds", "dt", "dx", "dz", "ea", "eb", "ec", "ed", "ee", "ef", "eg", "eh", "ei", "ej", "ek", "el", "em", "en", "eo", "ep", "eq", "er", "ce", "cf", "cg", "dw", "du", "ch", "ci", "cj", "ck", "cl", "cm", "cn", "co", "cp", "dr", "es", "cs", "ct", "dv", "dx", "dy" };
-
-#define Sensor_End 97
-#define Climate_End 97
+const char MQTT_DISCOVERY_OBJ_ID[][3] PROGMEM = { "aa", "ab", "ac", "ad", "ae", "af", "ag", "ai", "aj", "ak", "al", "am", "an", "ao", "ap", "aq", "ar", "as", "au", "av", "aw", "ax", "ay", "az", "ba", "bb", "bc", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bk", "bl", "bm", "bn", "bo", "bp", "bq", "br", "bs", "bt", "bu", "bv", "bw", "bx", "by", "bz", "ca", "cb", "cc", "cd", "cu", "cv", "cw", "cx", "cz", "da", "db", "dc", "de", "df", "dg", "dh", "di", "dj", "dk", "dl", "dm", "dn", "do", "dp", "dq", "ds", "dt", "dx", "dz", "ea", "eb", "ec", "ed", "ee", "ef", "eg", "eh", "ei", "ej", "ek", "el", "em", "en", "eo", "ep", "eq", "er", "et", "eu", "ev", "ew", "ce", "cf", "cg", "dw", "du", "ch", "ci", "cj", "ck", "cl", "cm", "cn", "co", "cp", "dr", "es", "cs", "ct", "dv", "dx", "dy", "es" };
 
 const char MQTT_SENSOR_UNIQUE_ID[][32] PROGMEM = {
   "ashp_bridge_lwt_",
@@ -106,6 +103,10 @@ const char MQTT_SENSOR_UNIQUE_ID[][32] PROGMEM = {
   "ashp_est_cooling_pwr_in_",
   "ashp_superheat_",
   "ashp_actv_ctrl_cycl_prtc_",
+  "ashp_outdoor_sw_v_",
+  "ashp_mel_status_",
+  "ashp_dip_sw_conf_",
+  "ashp_pri_pump_pwm_",
 
   "ashp_dhw_climate_",  //65
   "ashp_Zone1_climate_",
@@ -130,6 +131,7 @@ const char MQTT_SENSOR_UNIQUE_ID[][32] PROGMEM = {
   "ashp_heat_cool_mode_z2",
   "ashp_unit_size_",
   "ashp_glycol_",
+  "ashp_bridge_fmwre_upd_"
 };
 
 
@@ -231,6 +233,10 @@ const char MQTT_MDI_ICONS[][30] PROGMEM = {
   "mdi:transmission-tower-import",
   "mdi:water-thermometer",
   "mdi:fan-alert",
+  "mdi:alpha-v-box-outline",
+  "mdi:cloud-question",
+  "mdi:dip-switch",
+  "mdi:pump",
 
   "mdi:thermostat",
   "mdi:thermostat",  //80
@@ -258,7 +264,7 @@ const char MQTT_MDI_ICONS[][30] PROGMEM = {
 };
 
 
-const char MQTT_SENSOR_NAME[][40] PROGMEM = {
+const char MQTT_SENSOR_NAME[][45] PROGMEM = {
   "Bridge Status",
   "Firmware Version",
   "Bridge WiFi Signal",
@@ -280,7 +286,7 @@ const char MQTT_SENSOR_NAME[][40] PROGMEM = {
   "Refrigerant Temperature",
   "Immersion Heater",
   "Booster Heater 1",  //20
-  "Primary Water Pump",
+  "Water Pump 1",
   "Water Pump 2",
   "Three Way Valve 1",
   "Three Way Valve 2",
@@ -343,19 +349,23 @@ const char MQTT_SENSOR_NAME[][40] PROGMEM = {
   "Discharge Temperature TH4",
   "Subcool Temperature",
   "Heatsink Temperature TH8",
-  "2 Phase Temperature TH6",
+  "Plate Hex Liquid Temperature TH6",
   "Fan 1 Speed",
   "Fan 2 Speed",
   "Valve LEV A",
   "Valve LEV B",
-  "Suction Pipe Temperature TH32",
+  "Water Inlet Temperature TH32",
   "Computed DHW Output Power",
   "Computed DHW Input Power",
   "Computed Heating Output Power",
   "Computed Heating Input Power",
   "Computed Cooling Input Power",
   "Superheat Temperature",
-  "Short Cycle Protection Lockout",
+  "Short Cycle Protection State",
+  "Outdoor Unit Software Version",
+  "MELCloud Adapter Status",
+  "Dip Switch Configuration (Switch 1-1 to 6-8)",
+  "Water Pump 1 PWM Speed",
 
   "DHW Thermostat",
   "Zone 1 Thermostat",  //80
@@ -379,7 +389,8 @@ const char MQTT_SENSOR_NAME[][40] PROGMEM = {
   "Heating/Cooling Operation Mode Zone 1",  //95
   "Heating/Cooling Operation Mode Zone 2",
   "Outdoor Unit Size (kW)",
-  "Glycol Strength"
+  "Glycol Strength",
+  "Firmware Update"
 };
 
 const char MQTT_TOPIC[][34] PROGMEM = {
@@ -416,6 +427,8 @@ const char MQTT_TOPIC[][34] PROGMEM = {
   "/Command/Zone2/HeatingMode",         //30
   "/Command/System/UnitSize",           //31
   "/Command/System/Glycol",             //32
+  "/Command/System/Svc",                //33
+  "/Status/WiFiStatus/Update",          //34
 };
 
 
@@ -530,7 +543,11 @@ int MQTT_TOPIC_POS[] PROGMEM = {
   2,
   2,
   9,
-  10
+  10,
+  1,
+  1,
+  9,
+  2
 };
 
 int MQTT_UNITS_POS[] PROGMEM = {
@@ -630,6 +647,10 @@ int MQTT_UNITS_POS[] PROGMEM = {
   3,
   3,
   2,
+  0,
+  0,
+  0,
+  0,
   0
 };
 
@@ -693,7 +714,7 @@ const char MQTT_CLIMATE_STATE_TOPIC[][360] PROGMEM = {
   "{{'heat' if states('sensor.ecodan_ashp_prohibit_dhw')=='0' or states('sensor.ecodan_ashp_dhw_heating_phase')!='Off' else 'off'}}",
   "{{'heat' if (value_json.OpMode=='Heat' and states('sensor.ecodan_ashp_zone_1_heating_prohibit')=='0') else 'cool' if (value_json.OpMode=='Cool' and states('sensor.ecodan_ashp_zone_1_cooling_prohibit')=='0') else 'off'}}",
   "{{'heat' if (value_json.OpMode=='Heat' and state_attr('climate.zone2_climate','current_temperature')!=0 and states('sensor.ecodan_ashp_zone_2_heating_prohibit')=='0') else 'cool' if (value_json.OpMode=='Cool' and state_attr('climate.zone2_climate','current_temperature')!=0 and states('sensor.ecodan_ashp_zone_2_cooling_prohibit')=='0') else 'off'}}",
-  "{{'heat' if (value_json.OpMode=='Heat' and states('sensor.ecodan_ashp_zone_2_heating_prohibit')=='0') else 'cool' if (value_json.OpMode=='Cool' and states('sensor.ecodan_ashp_zone_1_cooling_prohibit')=='0') else 'off'}}",
+  "{{'heat' if (value_json.OpMode=='Heat' and states('sensor.ecodan_ashp_zone_1_heating_prohibit')=='0') else 'cool' if (value_json.OpMode=='Cool' and states('sensor.ecodan_ashp_zone_1_cooling_prohibit')=='0') else 'off'}}",
   "{{'heat' if (value_json.OpMode=='Heat' and state_attr('climate.zone2_climate','current_temperature')!=0 and states('sensor.ecodan_ashp_zone_2_heating_prohibit')=='0') else 'cool' if (value_json.OpMode=='Cool' and state_attr('climate.zone2_climate','current_temperature')!=0 and states('sensor.ecodan_ashp_zone_2_cooling_prohibit')=='0') else 'off'}}"
 };
 
@@ -734,7 +755,7 @@ const char MQTT_NUMBER_AVAIL_TEMPLATE[][98] PROGMEM = {
   "{{'online' if value_json.Has2Zone is true and value_json.HasSimple2Zone is false else 'offline'}}"
 };
 
-const char MQTT_SENSOR_VALUE_TEMPLATE[][50] PROGMEM = {
+const char MQTT_SENSOR_VALUE_TEMPLATE[][132] PROGMEM = {
   "{{ value if value is defined else 'Unknown' }}",
   "{{ value_json.Firmware }}",
   "{{ value_json.RSSI }}",
@@ -832,7 +853,10 @@ const char MQTT_SENSOR_VALUE_TEMPLATE[][50] PROGMEM = {
   "{{ value_json.EstCoolingInputPower }}",
   "{{ value_json.Superheat }}",
   "{{ value_json.ShortCycleProtectionActive }}",
-
+  "{{ value_json.OutdoorSoftwareVersion }}",
+  "{{ value_json.MELCloud_Status }}",
+  "{{value_json.DipSw1~' '~value_json.DipSw2~' '~value_json.DipSw3~' '~value_json.DipSw4~' '~value_json.DipSw5~' '~value_json.DipSw6}}",
+  "{{ value_json.PumpPWM }}",
   "{{ value_json }}",
   "{{ value_json.Setpoint }}",  //80
   "{{ value_json.FSP }}",
@@ -848,6 +872,7 @@ const char MQTT_SENSOR_VALUE_TEMPLATE[][50] PROGMEM = {
   "{{ value_json.HotWaterEcoBoostActive }}",
   "{{ value_json.ShortCycleProtectionEnabled }}",
   "{{ value_json.HeatingControlMode }}",
+  "{{ value_json.latest_version }}"
 };
 
 const char MQTT_DISCOVERY_TOPICS[][23] PROGMEM = {
@@ -856,7 +881,8 @@ const char MQTT_DISCOVERY_TOPICS[][23] PROGMEM = {
   "homeassistant/switch/",
   "homeassistant/climate/",
   "homeassistant/select/",
-  "/config"
+  "/config",
+  "homeassistant/update/"
 };
 
 const char MQTT_DEVICE_CLASS[][17] PROGMEM = {  // Uses same structure as Units - but blank when no match
@@ -867,5 +893,6 @@ const char MQTT_DEVICE_CLASS[][17] PROGMEM = {  // Uses same structure as Units 
   "frequency",
   "volume_flow_rate",
   "duration",
-  "energy"
+  "energy",
+  "firmware"
 };

@@ -61,7 +61,7 @@ uint8_t Array0x33[] = {};
 uint8_t Array0x34[] = {};
 uint8_t Array0x35[] = {};
 
-uint8_t BufferArray[][17] = { {}, {}, {}, {}, {}, {}, {}, {}, {}, {} };
+uint8_t BufferArray[][17] = { {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} };
 
 
 ECODANDECODER::ECODANDECODER(void) {
@@ -712,20 +712,44 @@ void ECODANDECODER::Process0x14(uint8_t *Buffer, EcodanStatus *Status) {
 
 
 void ECODANDECODER::Process0x15(uint8_t *Buffer, EcodanStatus *Status) {
-  uint8_t PrimaryWaterPump, WaterPump2, WaterPump3a, ThreeWayValve, ThreeWayValve2, MixingStep;
+  uint8_t PrimaryWaterPump, PrimaryWaterPumpSpeed, PumpPower, WaterPump2, WaterPump3a, ThreeWayValve, ThreeWayValve2, MixingStep;
 
   for (int i = 1; i < 16; i++) {
     Array0x15[i] = Buffer[i];
   }
 
   PrimaryWaterPump = Buffer[1];  // 01 when running (Primary Water Pump)
-  WaterPump2 = Buffer[4];        // Water Pump 2 Active
-  WaterPump3a = Buffer[5];       // Complex Zone2 Water Pump OUT3
-  ThreeWayValve = Buffer[6];     // 3 Way Valve Position
-  ThreeWayValve2 = Buffer[7];    // 3 Way Valve 2 Position
-  MixingStep = Buffer[10];       // Mixing Valve Step
+
+  if (Buffer[2] == 0x34) {
+    PrimaryWaterPumpSpeed = 1;
+  } else if (Buffer[2] == 0x29) {
+    PrimaryWaterPumpSpeed = 2;
+  } else if (Buffer[2] == 0x1F) {
+    PrimaryWaterPumpSpeed = 3;
+  } else if (Buffer[2] == 0x14) {
+    PrimaryWaterPumpSpeed = 4;
+  } else if (Buffer[2] == 0x0) {
+    PrimaryWaterPumpSpeed = 5;
+  } else if (Buffer[2] == 0x64) {
+    PrimaryWaterPumpSpeed = 0;
+  }
+
+  PumpPower = Buffer[3];  // Primary Power Power Est.
+  // 74-76 = Warning
+  // 84-86 = Electrical Error
+  // 89-91 = Blockage
+  // 255 = Stopped
+
+
+  WaterPump2 = Buffer[4];      // Water Pump 2 Active
+  WaterPump3a = Buffer[5];     // Complex Zone2 Water Pump OUT3
+  ThreeWayValve = Buffer[6];   // 3 Way Valve Position
+  ThreeWayValve2 = Buffer[7];  // 3 Way Valve 2 Position
+  MixingStep = Buffer[10];     // Mixing Valve Step
 
   Status->PrimaryWaterPump = PrimaryWaterPump;
+  Status->PrimaryWaterPumpSpeed = PrimaryWaterPumpSpeed;
+  Status->PumpPower = PumpPower;
   Status->WaterPump2 = WaterPump2;
   Status->WaterPump3a = WaterPump3a;
   Status->ThreeWayValve = ThreeWayValve;
@@ -829,7 +853,7 @@ void ECODANDECODER::Process0x26(uint8_t *Buffer, EcodanStatus *Status) {
   DHWSetpoint = ((float)ExtractUInt16(Buffer, 8) / 100);
   //Zone1FlowSetpoint = ((float)ExtractUInt16(Buffer, 10) / 100);   // Duplicate of 0x09
   //Zone2FlowSetpoint = ((float)ExtractUInt16(Buffer, 12) / 100);   // Duplicate of 0x09
-  //ScheduleStatus = Buffer[14];
+  //MRCProhibit = Buffer[14];
 
   Status->SystemPowerMode = SystemPowerMode;
   Status->SystemOperationMode = SystemOperationMode;
@@ -954,12 +978,12 @@ void ECODANDECODER::Process0xA3(uint8_t *Buffer, EcodanStatus *Status) {
   for (int i = 1; i < 16; i++) {
     Array0xa3[i] = Buffer[i];
   }
-  if (Buffer[3] == 1 || Buffer[3] == 2) {         // Valid Reply is "1" or "2" (result)
-    Write_To_Ecodan_OK = true;  // For de-queue
+  if (Buffer[3] == 1 || Buffer[3] == 2) {  // Valid Reply is "1" or "2" (result)
+    Write_To_Ecodan_OK = true;             // For de-queue
     Status->Write_To_Ecodan_OK = Write_To_Ecodan_OK;
 
     // Data Packets
-    Status->LastServiceCodeNumber = ServiceCode = Buffer[2];// Decode the reply to Update the correct Value
+    Status->LastServiceCodeNumber = ServiceCode = Buffer[2];  // Decode the reply to Update the correct Value
 
     // Process into the correct locations
     if (ServiceCode == 3) {
@@ -987,9 +1011,13 @@ void ECODANDECODER::Process0xA3(uint8_t *Buffer, EcodanStatus *Status) {
     } else if (ServiceCode == 20) {
       Status->Fan2RPM = ExtractInt16_v2_Signed(Buffer, 4);  //Little endian
     } else if (ServiceCode == 22) {
-      Status->LEVA = Buffer[4];
+      Status->LEVA = ExtractInt16_v2_Signed(Buffer, 4);
     } else if (ServiceCode == 23) {
-      Status->LEVB = Buffer[4];
+      Status->LEVB = ExtractInt16_v2_Signed(Buffer, 4);
+    } else if (ServiceCode == 70) {
+      Status->OutdoorUnitCapacity = Buffer[4];
+    } else if (ServiceCode == 90) {
+      snprintf(Status->OutdoorFirmware, 6, "%02X.%02X", Buffer[5], Buffer[4]);
     }
     Status->ServiceCodeReply = ExtractInt16_v2_Signed(Buffer, 4);
   } else if (Buffer[3] != 0) {  // FTC side done but response is Done (7) or Unknown (6)
@@ -1185,7 +1213,7 @@ void ECODANDECODER::EncodeRoomThermostat(float Setpoint, uint8_t ControlMode, ui
   LowerByte = (uint8_t)(ScaledTarget & 0x00ff);
 
   TxMessage.Payload[0] = TX_MESSAGE_ROOM_STAT;
-  TxMessage.Payload[3] = (ControlMode == HEATING_CONTROL_MODE_COOL_ZONE_TEMP || ControlMode == HEATING_CONTROL_MODE_COOL_FLOW_TEMP) ? 1 : 0;
+  TxMessage.Payload[3] = (ControlMode == HEATING_CONTROL_MODE_COOL_ZONE_TEMP || ControlMode == HEATING_CONTROL_MODE_COOL_FLOW_TEMP || ControlMode == HEATING_CONTROL_MODE_COOL_COMPENSATION) ? 1 : 0;
 
   if (Zone == ZONE1) {
     TxMessage.Payload[1] = ZONE1_TSTAT;
@@ -1314,7 +1342,7 @@ void ECODANDECODER::EncodeMELCloud(uint8_t cmd) {
 
 void ECODANDECODER::TransfertoBuffer(uint8_t msgtype, uint8_t bufferposition) {
   BufferArray[bufferposition][0] = msgtype;
-  for (int i = 1; i < 16; i++) {
+  for (int i = 1; i < 17; i++) {
     BufferArray[bufferposition][i] = TxMessage.Payload[i - 1];
   }
 }
@@ -1324,7 +1352,7 @@ uint8_t ECODANDECODER::ReturnNextCommandType(uint8_t bufferposition) {
 }
 
 void ECODANDECODER::EncodeNextCommand(uint8_t bufferposition) {
-  for (int i = 1; i < 16; i++) {
+  for (int i = 1; i < 17; i++) {
     TxMessage.Payload[i - 1] = BufferArray[bufferposition][i];
   }
 }

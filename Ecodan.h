@@ -53,8 +53,7 @@ public:
   void SetSystemPowerMode(uint8_t OnOff);
   void WriteMELCloudCMD(uint8_t cmd);
   void WriteServiceCodeCMD(int cmd);
-
-  bool SVCPopulated;
+  bool SVCPopulated, PauseStateMachine;
 
 protected:
 
@@ -72,6 +71,7 @@ private:
   Stream *DeviceStream;
   void Connect(void);
   void printCurrentTime(void);
+  void printTransferMsg(int length);
 };
 
 #endif
